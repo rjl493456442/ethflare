@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/rjl493456442/ethflare/params"
+	"github.com/rjl493456442/ethflare/types"
 )
 
 // emptyRoot is the known root hash of an empty trie.
@@ -94,7 +95,7 @@ func (g *generator) hasTile(hash common.Hash) bool {
 // state root.
 // So if it's not matched, then the version of state root mush newer than tile
 // and the tile may not be referenced by the state anymore.
-func (g *generator) getTile(hash common.Hash) (*Tile, common.Hash) {
+func (g *generator) getTile(hash common.Hash) (*types.Tile, common.Hash) {
 	// Search in memory cache first
 	if t := g.deliveries[hash]; t != nil {
 		req := g.requests[hash]
@@ -102,9 +103,10 @@ func (g *generator) getTile(hash common.Hash) (*Tile, common.Hash) {
 		for hash := range t.hashes {
 			hashes = append(hashes, hash)
 		}
-		return &Tile{
+		return &types.Tile{
 			Depth:  req.depth,
 			Hashes: hashes,
+			Refs:   t.refs,
 		}, g.state // It's in memory, return target state hash
 	}
 	// Then search it in the database
@@ -357,7 +359,7 @@ func (g *generator) commit(req *tileRequest, delivery *tileDelivery) error {
 	for _, node := range delivery.nodes {
 		storage += common.StorageSize(len(node))
 	}
-	if err := g.database.insert(req.hash, req.depth, storage, delivery.hashes); err != nil {
+	if err := g.database.insert(req.hash, req.depth, storage, delivery.hashes, delivery.refs); err != nil {
 		return err
 	}
 	delete(g.deliveries, req.hash)

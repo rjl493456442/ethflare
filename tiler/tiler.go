@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/rjl493456442/ethflare/params"
+	etype "github.com/rjl493456442/ethflare/types"
 )
 
 // Node is the interface of backend node
@@ -69,7 +70,7 @@ type tileQuery struct {
 
 // tileAnswer represents an answer for tile querying.
 type tileAnswer struct {
-	tile  *Tile
+	tile  *etype.Tile
 	state common.Hash
 }
 
@@ -268,7 +269,7 @@ func (t *Tiler) RegisterNode(n Node) {
 	}
 }
 
-func (t *Tiler) GetTile(root common.Hash) (*Tile, common.Hash) {
+func (t *Tiler) GetTile(root common.Hash) (*etype.Tile, common.Hash) {
 	result := make(chan tileAnswer, 1)
 	select {
 	case t.tileQueryCh <- &tileQuery{

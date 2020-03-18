@@ -22,45 +22,16 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/rlp"
 )
-
-func TestTileEncode(t *testing.T) {
-	var tiles = []*Tile{
-		{Depth: 0, Hashes: nil},
-		{Depth: 1, Hashes: nil},
-		{Depth: 1, Hashes: []common.Hash{common.HexToHash("dead"), common.HexToHash("beef")}},
-	}
-	for _, d := range tiles {
-		enc, err := rlp.EncodeToBytes(d)
-		if err != nil {
-			t.Fatal("Failed to encode tile")
-		}
-		var got Tile
-		if err := rlp.DecodeBytes(enc, &got); err != nil {
-			t.Fatal("Failed to decode tile")
-		}
-		if got.Depth != d.Depth {
-			t.Fatal("Depth mismatch")
-		}
-		if len(got.Hashes) != len(d.Hashes) {
-			t.Fatal("Hashes mismatch")
-		}
-		for index, h := range got.Hashes {
-			if d.Hashes[index] != h {
-				t.Fatal("Hashes mismatch")
-			}
-		}
-	}
-}
 
 func createTestLayer(db *tileDatabase, state common.Hash, start int) {
 	for i := 0; i < 10; i++ {
-		references := map[common.Hash]struct{}{
+		hashes := map[common.Hash]struct{}{
 			common.HexToHash("deadbeef"): {},
 			common.HexToHash("cafebabe"): {},
 		}
-		db.insert(common.HexToHash(fmt.Sprintf("%x", start*10+i+1)), uint8(i), common.StorageSize(100), references)
+		refs := []common.Hash{common.HexToHash("deadbeef"), common.HexToHash("cafebabe")}
+		db.insert(common.HexToHash(fmt.Sprintf("%x", start*10+i+1)), uint8(i), common.StorageSize(100), hashes, refs)
 	}
 	db.commit(state)
 }

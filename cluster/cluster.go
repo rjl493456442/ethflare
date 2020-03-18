@@ -25,10 +25,10 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/rjl493456442/ethflare/database"
 	"github.com/rjl493456442/ethflare/tiler"
 )
 
@@ -66,15 +66,10 @@ type Cluster struct {
 
 // NewCluster returns a cluster instance
 func NewCluster(config *Config) (*Cluster, error) {
-	db := rawdb.NewMemoryDatabase()
-	if config.Datadir != "" {
-		ldb, err := rawdb.NewLevelDBDatabase(config.Datadir, 1024, 512, "tile")
-		if err != nil {
-			return nil, err
-		}
-		db = ldb
+	db, err := database.NewDatabase(config.Datadir)
+	if err != nil {
+		return nil, err
 	}
-
 	seedb := make([]byte, 8)
 	crand.Read(seedb)
 	seed := int64(binary.BigEndian.Uint64(seedb))

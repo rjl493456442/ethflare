@@ -17,45 +17,24 @@
 package tiler
 
 import (
-	"io"
+	"fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/rjl493456442/ethflare/database"
+	"github.com/rjl493456442/ethflare/types"
 )
 
 // tile represents the metadata of a chunk of state trie.
-type Tile struct {
-	Depth  uint8         // The depth of the root node in trie
-	Hashes []common.Hash // The hash list of all included nodes
+// It's an inner version with two additional fields.
+type tile struct {
+	types.Tile
 
 	flushPrev common.Hash // Previous node in the flush-list
 	flushNext common.Hash // Next node in the flush-list
-}
-
-// EncodeRLP implements rlp.Encoder which flattens all necessary fields into an RLP stream.
-func (t *Tile) EncodeRLP(w io.Writer) error {
-	type tileRLP struct {
-		Depth  uint8         // The depth of the root node in trie
-		Hashes []common.Hash // The hash list of all included nodes
-	}
-	return rlp.Encode(w, &tileRLP{t.Depth, t.Hashes})
-}
-
-// DecodeRLP implements rlp.Decoder which loads the persisted fields of a tile from an RLP stream.
-func (t *Tile) DecodeRLP(s *rlp.Stream) error {
-	type tileRLP struct {
-		Depth  uint8         // The depth of the root node in trie
-		Hashes []common.Hash // The hash list of all included nodes
-	}
-	var dec tileRLP
-	if err := s.Decode(&dec); err != nil {
-		return err
-	}
-	t.Depth, t.Hashes = dec.Depth, dec.Hashes
-	return nil
 }
 
 // diffLayer is memory layer which contains all changes compared with it's
@@ -63,7 +42,7 @@ func (t *Tile) DecodeRLP(s *rlp.Stream) error {
 type diffLayer struct {
 	parent *diffLayer            // Pointer to parent layer, nil if it's the deepest
 	state  common.Hash           // Empty means the tile crawling is not completed yet
-	tiles  map[common.Hash]*Tile // Tile set, linked by the insertion order
+	tiles  map[common.Hash]*tile // Tile set, linked by the insertion order
 	size   common.StorageSize    // Total node size of maintained tiles
 
 	oldest common.Hash // Oldest tracked node, flush-list head
@@ -83,13 +62,7 @@ func (diff *diffLayer) flush(db *tileDatabase) (*diffLayer, int, error) {
 	}
 	batch := db.db.NewBatch()
 	for h, tile := range diff.tiles {
-		enc, err := rlp.EncodeToBytes(tile)
-		if err != nil {
-			return nil, 0, err
-		}
-		if err := batch.Put(append(tilePrefix, h.Bytes()...), enc); err != nil {
-			return nil, 0, err
-		}
+		database.WriteTile(batch, h, &tile.Tile)
 		if batch.ValueSize() > ethdb.IdealBatchSize {
 			if err := batch.Write(); err != nil {
 				return nil, 0, err
@@ -99,9 +72,7 @@ func (diff *diffLayer) flush(db *tileDatabase) (*diffLayer, int, error) {
 	}
 	// Commit state root to represent the whole state is tiled.
 	if diff.state != (common.Hash{}) {
-		if err := batch.Put(headStateKey, diff.state.Bytes()); err != nil {
-			return nil, 0, err
-		}
+		database.WriteStateRoot(batch, diff.state)
 	}
 	if err := batch.Write(); err != nil {
 		return nil, 0, err
@@ -174,7 +145,7 @@ func (diff *diffLayer) cap(db *tileDatabase, needDrop int) (*diffLayer, int, err
 		delete(db.diffset, diff.state) // may be noop if the layer is uncompleted
 		count := len(diff.tiles)
 		diff.state, diff.oldest = common.Hash{}, common.Hash{}
-		diff.tiles = make(map[common.Hash]*Tile)
+		diff.tiles = make(map[common.Hash]*tile)
 		diff.oldest, diff.newest = common.Hash{}, common.Hash{}
 		return nil, dropped + count, nil
 	} else {
@@ -198,10 +169,10 @@ func (diff *diffLayer) has(hash common.Hash) bool {
 // get returns the tile metadata if it's maintained.
 // The returned state flag may be empty if the layer
 // is uncompleted.
-func (diff *diffLayer) get(hash common.Hash) (*Tile, common.Hash) {
+func (diff *diffLayer) get(hash common.Hash) (*types.Tile, common.Hash) {
 	// Search in this layer first.
 	if tile := diff.tiles[hash]; tile != nil {
-		return tile, diff.state
+		return &tile.Tile, diff.state
 	}
 	// Not found, search in parent layer
 	if diff.parent != nil {
@@ -250,23 +221,26 @@ func newTileDatabase(db ethdb.Database) *tileDatabase {
 	}
 }
 
-func (db *tileDatabase) insert(hash common.Hash, depth uint8, size common.StorageSize, hashmap map[common.Hash]struct{}) error {
+func (db *tileDatabase) insert(hash common.Hash, depth uint8, size common.StorageSize, hashmap map[common.Hash]struct{}, refs []common.Hash) error {
 	// Allocate a new diff layer if necessary
 	if db.current == nil {
 		var parent *diffLayer
 		if db.latest != (common.Hash{}) {
 			parent = db.diffset[db.latest]
 		}
-		db.current = &diffLayer{parent: parent, tiles: make(map[common.Hash]*Tile)}
+		db.current = &diffLayer{parent: parent, tiles: make(map[common.Hash]*tile)}
 	}
 	// Insert the new tile to the set
 	var hashes []common.Hash
 	for hash := range hashmap {
 		hashes = append(hashes, hash)
 	}
-	db.current.tiles[hash] = &Tile{
-		Depth:  depth,
-		Hashes: hashes,
+	db.current.tiles[hash] = &tile{
+		Tile: types.Tile{
+			Depth:  depth,
+			Hashes: hashes,
+			Refs:   refs,
+		},
 	}
 	db.current.size += size
 	log.Trace("Inserted tile", "hash", hash, "size", size)
@@ -301,6 +275,11 @@ func (db *tileDatabase) commit(root common.Hash) error {
 	if db.current == nil {
 		return nil
 	}
+	// Debug panic, too see how many duplicated state
+	if l, ok := db.diffset[root]; ok {
+		msg := fmt.Sprintf("old:%d, new:%d", len(l.tiles), len(db.current.tiles))
+		panic(msg)
+	}
 	tiles, size := len(db.current.tiles), db.current.size
 	db.current.state = root
 	db.diffset[root] = db.current
@@ -331,15 +310,12 @@ func (db *tileDatabase) has(hash common.Hash) bool {
 		return true
 	}
 	// Search it in database later
-	has, err := db.db.Has(append(tilePrefix, hash.Bytes()...))
-	if has && err == nil {
-		return true
-	}
-	return false // Not found
+	t, _ := database.ReadTile(db.db, hash)
+	return t != nil
 }
 
 // has returns the indicator whether the tile is available in database.
-func (db *tileDatabase) get(hash common.Hash) (*Tile, common.Hash) {
+func (db *tileDatabase) get(hash common.Hash) (*types.Tile, common.Hash) {
 	layer := db.current
 	if layer == nil && db.latest != (common.Hash{}) {
 		layer = db.diffset[db.latest]
@@ -351,17 +327,14 @@ func (db *tileDatabase) get(hash common.Hash) (*Tile, common.Hash) {
 		}
 	}
 	// Search it in database later
-	enc, err := db.db.Get(append(tilePrefix, hash.Bytes()...))
-	if len(enc) > 0 && err == nil {
-		var t Tile
-		if err := rlp.DecodeBytes(enc, &t); err != nil {
-			return nil, common.Hash{}
-		}
-		head, _ := db.db.Get(headStateKey)
-		if head == nil {
-			return &t, common.BytesToHash(head) // Completed disk layer
-		}
-		return &t, common.Hash{} // Uncompleted disk layer
+	t, _ := database.ReadTile(db.db, hash)
+	if t != nil {
+		state, _ := database.ReadStateRoot(db.db)
+		return &types.Tile{
+			Depth:  t.Depth,
+			Hashes: t.Hashes,
+			Refs:   t.Refs,
+		}, state
 	}
 	return nil, common.Hash{} // Not found
 }
