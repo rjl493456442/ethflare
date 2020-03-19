@@ -389,14 +389,12 @@ func (g *generator) commit(req *tileRequest, delivery *tileDelivery) error {
 			for hash := range delivery.hashes {
 				parent.hashes[hash] = struct{}{}
 			}
-			var index int
-			for _, ref := range parent.refs {
-				if _, ok := delivery.hashes[ref]; !ok {
-					parent.refs[index] = ref
-					index += 1
+			for index, ref := range parent.refs {
+				if ref == req.hash {
+					parent.refs = append(parent.refs[:index], parent.refs[index+1:]...)
+					break
 				}
 			}
-			parent.refs = parent.refs[:index]
 			parent.refs = append(parent.refs, delivery.refs...)
 		}
 		delete(g.deliveries, req.hash)
