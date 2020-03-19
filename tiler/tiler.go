@@ -217,6 +217,7 @@ func (t *Tiler) loop() {
 					return err
 				}
 				generator.addTask(obj.Root, 64, parent, nil) // Spin up more sub tasks for storage trie
+				generator.reference(parent, obj.Root)        // reference state tile and storage tile
 				return nil
 			}
 			// If it's first fired or newer state is available, create generator to generate crawl tasks

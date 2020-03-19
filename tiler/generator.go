@@ -64,6 +64,7 @@ type generator struct {
 	state      common.Hash
 	requests   map[common.Hash]*tileRequest
 	deliveries map[common.Hash]*tileDelivery
+	externRefs map[common.Hash][]common.Hash
 	queue      *prque.Prque
 	database   *tileDatabase
 	stat       *statistic
@@ -75,6 +76,7 @@ func newGenerator(state common.Hash, database *tileDatabase, stat *statistic) *g
 		state:      state,
 		requests:   make(map[common.Hash]*tileRequest),
 		deliveries: make(map[common.Hash]*tileDelivery),
+		externRefs: make(map[common.Hash][]common.Hash),
 		database:   database,
 		queue:      prque.New(nil),
 		stat:       stat,
@@ -164,6 +166,24 @@ func (g *generator) addTask(hash common.Hash, depth uint8, parent common.Hash, o
 		atomic.AddUint32(&g.stat.storageTask, 1)
 	}
 	log.Debug("Add task", "hash", hash, "parent", parent, "depth", depth, "storage", onLeaf == nil)
+}
+
+// reference adds an external reference for state tile and storage tile.
+func (g *generator) reference(parent, child common.Hash) {
+	if child == emptyRoot {
+		return
+	}
+	// If it's already referenced, skip it.
+	// It can happen the parent tile includes account A, B, C
+	// While the root storage tile of A, B, C can be same(e.g.
+	// factory contract)
+	for _, h := range g.externRefs[parent] {
+		if h == child {
+			return
+		}
+	}
+	g.externRefs[parent] = append(g.externRefs[parent], child)
+	log.Trace("Reference externally", "parent", parent, "child", child)
 }
 
 // schedule inserts a new tile retrieval request into the fetch queue. If there
@@ -388,6 +408,12 @@ func (g *generator) commit(req *tileRequest, delivery *tileDelivery) error {
 	var storage common.StorageSize
 	for _, node := range delivery.nodes {
 		storage += common.StorageSize(len(node))
+	}
+	// If the committed tile is a leaf of state trie,
+	// add the additional external reference.
+	if children, ok := g.externRefs[req.hash]; ok {
+		delivery.refs = append(delivery.refs, children...)
+		delete(g.externRefs, req.hash)
 	}
 	if err := g.database.insert(req.hash, req.depth, storage, delivery.hashes, delivery.refs); err != nil {
 		return err

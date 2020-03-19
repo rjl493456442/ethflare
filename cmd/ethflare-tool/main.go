@@ -97,10 +97,13 @@ func listTiles(ctx *cli.Context) error {
 		return nil
 	}
 	var (
-		tiles  uint64
-		miss   uint64
-		hashes uint64
-		refs   uint64
+		tiles   uint64 // The total number of tile
+		miss    uint64 // The total number of missing tile(broken db)
+		hashes  uint64 // The total number of trie node
+		refs    uint64 // The total number of references
+		leaves  uint64 // The leaf tile number(including the state trie and storage tile)
+		state   uint64 // The tile number of state trie
+		storage uint64 // The tile number of storage trie
 
 		maxHashes int
 		maxRefs   int
@@ -139,6 +142,16 @@ func listTiles(ctx *cli.Context) error {
 			if len(tile.Refs) < minRefs {
 				minRefs = len(tile.Refs)
 			}
+			// No outward reference, it's leaf
+			// todo count leaves of state trie
+			if len(tile.Refs) == 0 {
+				leaves += 1
+			}
+			if tile.Depth < 64 {
+				state += 1
+			} else {
+				storage += 1
+			}
 		}
 		for _, ref := range tile.Refs {
 			queue.Push(ref, prio+1)
@@ -151,8 +164,11 @@ func listTiles(ctx *cli.Context) error {
 		{"Tile size", tileSize.String()},
 		{"Hash size", hashSize.String()},
 		{"Refs size", refsSize.String()},
-		{"Total size", fmt.Sprintf("%d", tiles)},
+		{"Total", fmt.Sprintf("%d", tiles)},
 		{"Miss", fmt.Sprintf("%d", miss)},
+		{"Leaf", fmt.Sprintf("%d", leaves)},
+		{"State", fmt.Sprintf("%d", state)},
+		{"Storage", fmt.Sprintf("%d", storage)},
 		{"Avg nodes", fmt.Sprintf("%.2f", float64(hashes)/float64(tiles))},
 		{"Avg refs", fmt.Sprintf("%.2f", float64(refs)/float64(tiles))},
 		{"Max node", fmt.Sprintf("%d", maxHashes)},
