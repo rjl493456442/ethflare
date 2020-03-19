@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/rjl493456442/ethflare/database"
 	"github.com/rjl493456442/ethflare/params"
 	etype "github.com/rjl493456442/ethflare/types"
 )
@@ -129,10 +130,12 @@ func (t *Tiler) loop() {
 
 		generator *generator
 		pivot     *types.Header
-		latest    *types.Header
 		tileDB    = newTileDatabase(t.db)
 	)
-
+	// Print history progress.
+	if hash, _ := database.ReadStateRoot(t.db); hash != (common.Hash{}) {
+		log.Info("Load latest committed state", "hash", hash)
+	}
 	for {
 		// Assign new tasks to nodes for tile indexing
 		if generator != nil {
@@ -148,8 +151,8 @@ func (t *Tiler) loop() {
 
 				// Better solution, using a worker pool instead
 				// of creating routines infinitely.
-				go func() {
-					ctx, cancelFn := context.WithTimeout(context.Background(), time.Second*10)
+				go func(node Node) {
+					ctx, cancelFn := context.WithTimeout(context.Background(), time.Second*3)
 					defer cancelFn()
 
 					nodes, err := node.GetTile(ctx, task)
@@ -159,20 +162,23 @@ func (t *Tiler) loop() {
 						nodes:  nodes,
 						err:    err,
 					}
-				}()
+				}(node)
 			}
 			if generator.pending() == 0 && pivot != nil {
 				if err := tileDB.commit(pivot.Root); err != nil {
 					log.Error("Failed to commit state", "error", err)
 				} else {
 					log.Info("Tiles indexed", "number", pivot.Number, "hash", pivot.Hash(), "state", pivot.Root)
-					pivot = nil
+					pivot, generator = nil, nil
 				}
 			}
 		}
 		// Handle any events, not much to do if nothing happens
 		select {
 		case <-t.closeCh:
+			if err := tileDB.close(); err != nil {
+				log.Error("Failed to close tile db", "error", err)
+			}
 			return
 
 		case b := <-t.addNodeCh:
@@ -200,14 +206,11 @@ func (t *Tiler) loop() {
 				}
 			}
 			if t.removeNode != nil {
-				t.removeNode(b.ID())
+				_ = t.removeNode(b.ID())
 			}
 
 		case announce := <-t.newHeadCh:
 			heads[announce.origin.ID()] = announce.head
-			if latest == nil || announce.head.Number.Uint64() > latest.Number.Uint64() {
-				latest = announce.head
-			}
 			callback := func(leaf []byte, parent common.Hash) error {
 				var obj state.Account
 				if err := rlp.Decode(bytes.NewReader(leaf), &obj); err != nil {
@@ -228,7 +231,7 @@ func (t *Tiler) loop() {
 
 		case tile := <-t.newTileCh:
 			delete(assigned, tile.origin)
-			generator.process(tile, ids)
+			_ = generator.process(tile, ids)
 
 		case req := <-t.tileQueryCh:
 			tile, state := generator.getTile(req.hash)

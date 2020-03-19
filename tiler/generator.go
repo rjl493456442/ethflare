@@ -71,7 +71,7 @@ type generator struct {
 
 // newGenerator creates a state-tile task generator.
 func newGenerator(state common.Hash, database *tileDatabase, stat *statistic) *generator {
-	return &generator{
+	g := &generator{
 		state:      state,
 		requests:   make(map[common.Hash]*tileRequest),
 		deliveries: make(map[common.Hash]*tileDelivery),
@@ -79,6 +79,8 @@ func newGenerator(state common.Hash, database *tileDatabase, stat *statistic) *g
 		queue:      prque.New(nil),
 		stat:       stat,
 	}
+	log.Debug("New generator", "state", state)
+	return g
 }
 
 // hasTile returns indicators whether a specified tile is crawled.
@@ -129,11 +131,13 @@ func (g *generator) addTask(hash common.Hash, depth uint8, parent common.Hash, o
 	// is empty.
 	if hash == emptyRoot {
 		atomic.AddUint32(&g.stat.emptyTask, 1)
+		log.Debug("Empty task", "hash", hash, "parent", parent, "depth", depth, "storage", onLeaf == nil)
 		return
 	}
 	// Short circuit if the tile is already known
 	if g.hasTile(hash) {
 		atomic.AddUint32(&g.stat.duplicateTask, 1)
+		log.Debug("Duplicated task", "hash", hash, "parent", parent, "depth", depth, "storage", onLeaf == nil)
 		return
 	}
 	// Assemble the new sub-tile sync request
@@ -159,6 +163,7 @@ func (g *generator) addTask(hash common.Hash, depth uint8, parent common.Hash, o
 	} else {
 		atomic.AddUint32(&g.stat.storageTask, 1)
 	}
+	log.Debug("Add task", "hash", hash, "parent", parent, "depth", depth, "storage", onLeaf == nil)
 }
 
 // schedule inserts a new tile retrieval request into the fetch queue. If there
@@ -173,7 +178,6 @@ func (g *generator) schedule(req *tileRequest) {
 	// Schedule the request for future retrieval
 	g.queue.Push(req.hash, int64(req.depth))
 	g.requests[req.hash] = req
-	log.Trace("Add new task", "hash", req.hash)
 }
 
 // assignTasks pops a task from queue which is not sent
@@ -196,6 +200,9 @@ func (g *generator) assignTasks(nodeid string) common.Hash {
 			continue
 		}
 		request.attempts[nodeid] = struct{}{}
+		if hash == (common.Hash{}) {
+			log.Error("Invalid task")
+		}
 		return hash
 	}
 	return common.Hash{} // No more task available
@@ -204,6 +211,28 @@ func (g *generator) assignTasks(nodeid string) common.Hash {
 // pending returns the number of inflight requests
 func (g *generator) pending() int {
 	return len(g.requests)
+}
+
+// forAllPending iterates all pending requests(mainly for debugging purpose)
+func (g *generator) forAllPending(callback func(req *tileRequest) bool) {
+	var (
+		depths  []uint8
+		poplist []common.Hash
+	)
+	defer func() {
+		for i := 0; i < len(poplist); i++ {
+			g.queue.Push(poplist[i], int64(depths[i]))
+		}
+	}()
+	for !g.queue.Empty() {
+		hash := g.queue.PopItem().(common.Hash)
+		request := g.requests[hash]
+		poplist, depths = append(poplist, hash), append(depths, request.depth)
+
+		if !callback(request) {
+			return
+		}
+	}
 }
 
 // process injects the retrieved tile and expands more sub tasks from the
@@ -236,6 +265,7 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 		// silently. It's ok if the tile is still referenced by state,
 		// we can retrieve it later.
 		atomic.AddUint32(&g.stat.failures, 1)
+		delete(g.requests, delivery.hash)
 		return nil
 	}
 	// Decode the nodes in the tile and continue expansion to newly discovered ones
@@ -256,11 +286,11 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 			if index == 0 {
 				atomic.AddUint32(&g.stat.dropEntireTile, 1)
 				delete(g.requests, request.hash)
-				g.commitParent(request)
+				_ = g.commitParent(request)
 				return nil
 			}
 			removed = append(removed, index)
-			trie.IterateRefs(node, func(path []byte, child common.Hash) error {
+			_ = trie.IterateRefs(node, func(path []byte, child common.Hash) error {
 				removedRefs[child] = true
 				return nil
 			}, nil)
@@ -281,7 +311,7 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 	}
 	var children []*tileRequest
 	for _, node := range delivery.nodes {
-		trie.IterateRefs(node, func(path []byte, child common.Hash) error {
+		_ = trie.IterateRefs(node, func(path []byte, child common.Hash) error {
 			depths[child] = depths[crypto.Keccak256Hash(node)] + uint8(len(path))
 			if _, ok := delivery.hashes[child]; !ok {
 				delivery.refs = append(delivery.refs, child)
@@ -305,7 +335,7 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 			return nil
 		}, func(path []byte, node []byte) error {
 			if request.onLeaf != nil {
-				request.onLeaf(node, request.hash)
+				_ = request.onLeaf(node, request.hash)
 			}
 			return nil
 		})
@@ -315,7 +345,7 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 	// We still need to check whether deps is zero or not.
 	// Sub task may be created via callback.
 	if len(children) == 0 && request.deps == 0 {
-		g.commit(request, delivery)
+		_ = g.commit(request, delivery)
 		return nil
 	}
 	request.deps += len(children)

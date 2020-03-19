@@ -96,8 +96,13 @@ func listTiles(ctx *cli.Context) error {
 		return nil
 	}
 	var (
-		tiles uint64
-		miss  uint64
+		tiles  uint64
+		miss   uint64
+		hashes uint64
+		refs   uint64
+
+		largestHashes int
+		largestRefs   int
 
 		tileSize common.StorageSize
 		hashSize common.StorageSize
@@ -112,10 +117,19 @@ func listTiles(ctx *cli.Context) error {
 			miss += 1
 			continue
 		} else {
-			tiles += 1
 			tileSize += common.StorageSize(common.HashLength * (len(tile.Hashes) + len(tile.Refs)))
 			hashSize += common.StorageSize(common.HashLength * len(tile.Hashes))
 			refsSize += common.StorageSize(common.HashLength * len(tile.Refs))
+
+			tiles += 1
+			hashes += uint64(len(tile.Hashes))
+			refs += uint64(len(tile.Refs))
+			if len(tile.Hashes) > largestHashes {
+				largestHashes = len(tile.Hashes)
+			}
+			if len(tile.Refs) > largestRefs {
+				largestRefs = len(tile.Refs)
+			}
 		}
 		for _, ref := range tile.Refs {
 			queue.Push(ref, prio+1)
@@ -130,6 +144,10 @@ func listTiles(ctx *cli.Context) error {
 		{"refs store", refsSize.String()},
 		{"Total", fmt.Sprintf("%d", tiles)},
 		{"Miss", fmt.Sprintf("%d", miss)},
+		{"Avg nodes", fmt.Sprintf("%.2f", float64(hashes)/float64(tiles))},
+		{"Avg refs", fmt.Sprintf("%.2f", float64(refs)/float64(tiles))},
+		{"Max node", fmt.Sprintf("%d", largestHashes)},
+		{"Max ref", fmt.Sprintf("%d", largestRefs)},
 	}
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Category", "Size/Count"})

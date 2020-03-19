@@ -77,6 +77,8 @@ func (diff *diffLayer) flush(db *tileDatabase) (*diffLayer, int, error) {
 	if err := batch.Write(); err != nil {
 		return nil, 0, err
 	}
+	log.Trace("Flush layer", "state", diff.state, "number", len(diff.tiles))
+
 	// May be noop since only completed layer will be registered into set
 	delete(db.diffset, diff.state)
 
@@ -295,6 +297,24 @@ func (db *tileDatabase) commit(root common.Hash) error {
 			return err
 		}
 		db.totalTiles -= committed
+	}
+	return nil
+}
+
+// close writes all in-memory data into disk
+func (db *tileDatabase) close() error {
+	for len(db.diffset) > 0 {
+		latest := db.diffset[db.latest]
+		_, _, err := latest.flush(db)
+		if err != nil {
+			return err
+		}
+	}
+	if db.current != nil {
+		_, _, err := db.current.flush(db)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

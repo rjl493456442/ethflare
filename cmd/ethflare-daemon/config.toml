@@ -3,6 +3,6 @@ HTTPPort = 9999
 Datadir  = "/Users/gary/ethflare"
 
 Nodes = [
-    {ID = "node1", Endpoint = "ws://172.16.30.194:8546", RateLimit = 50000 },
-    {ID = "node2", Endpoint = "ws://172.16.30.194:8547", RateLimit = 50000 }
+    {ID = "node1", Endpoint = "ws://172.16.30.194:8546", RateLimit = 5000 },
+    {ID = "node2", Endpoint = "ws://172.16.30.194:8547", RateLimit = 5000 }
 ]

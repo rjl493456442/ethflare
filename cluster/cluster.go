@@ -23,6 +23,7 @@ import (
 	"errors"
 	mrand "math/rand"
 	"strings"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -62,6 +63,9 @@ type Cluster struct {
 	nodes *NodeSet
 	rand  *mrand.Rand
 	log   log.Logger
+
+	once   sync.Once
+	closed chan struct{}
 }
 
 // NewCluster returns a cluster instance
@@ -82,6 +86,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 		log:    config.Log,
 		rand:   rand,
 		tiler:  tiler.NewTiler(db, nodes.RemoveNode),
+		closed: make(chan struct{}),
 	}, nil
 }
 
@@ -113,6 +118,13 @@ func (c *Cluster) Start() {
 
 func (c *Cluster) Stop() {
 	c.tiler.Stop()
+	c.once.Do(func() {
+		close(c.closed)
+	})
+}
+
+func (c *Cluster) Wait() {
+	<-c.closed
 }
 
 // ServeRequest performs the request serving with given arguments.

@@ -22,19 +22,23 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"os/signal"
 	"path"
 	"reflect"
+	"runtime/debug"
+	"syscall"
 	"unicode"
 
 	"github.com/ethereum/go-ethereum/cmd/utils"
-	"github.com/ethereum/go-ethereum/common/fdlimit"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/naoina/toml"
 	"github.com/rjl493456442/ethflare/cluster"
 	"github.com/rjl493456442/ethflare/httpserver"
 	"gopkg.in/urfave/cli.v1"
+	_ "net/http/pprof"
 )
 
 var (
@@ -55,6 +59,7 @@ func init() {
 		serverPortFlag,
 		dataDirFlag,
 		configFileFlag,
+		verbosityFlag,
 	}
 	cli.CommandHelpTemplate = utils.OriginCommandHelpTemplate
 }
@@ -80,16 +85,22 @@ var (
 		Name:  "config",
 		Usage: "TOML configuration file",
 	}
+	verbosityFlag = cli.IntFlag{
+		Name:  "verbosity",
+		Usage: "Logging verbosity: 0=crit, 1=error, 2=warn, 3=info, 4=debug, 5=trace",
+		Value: 3,
+	}
 )
 
 func main() {
-	log.Root().SetHandler(log.LvlFilterHandler(log.LvlDebug, log.StreamHandler(os.Stderr, log.TerminalFormat(true))))
-	fdlimit.Raise(2048)
-
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func setlog(level log.Lvl) {
+	log.Root().SetHandler(log.LvlFilterHandler(level, log.StreamHandler(os.Stderr, log.TerminalFormat(true))))
 }
 
 var commandServer = cli.Command{
@@ -100,12 +111,15 @@ var commandServer = cli.Command{
 		serverPortFlag,
 		dataDirFlag,
 		configFileFlag,
+		verbosityFlag,
 	},
 	Action: utils.MigrateFlags(startServer),
 }
 
 // startServer creates a server instance and start serving.
 func startServer(ctx *cli.Context) error {
+	setlog(log.Lvl(ctx.Int(verbosityFlag.Name)))
+
 	var config cluster.Config
 	if file := ctx.GlobalString(configFileFlag.Name); file != "" {
 		if err := loadConfig(file, &config); err != nil {
@@ -132,7 +146,28 @@ func startServer(ctx *cli.Context) error {
 	c.Start()
 
 	server := httpserver.NewHTTPServer(c)
-	server.Start(config.HTTPHost, config.HTTPPort)
+	go server.Start(config.HTTPHost, config.HTTPPort)
+	go func() {
+		http.ListenAndServe("localhost:6060", nil)
+	}()
+
+	go func() {
+		sigc := make(chan os.Signal, 1)
+		signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
+		defer signal.Stop(sigc)
+		<-sigc
+		log.Info("Got interrupt, shutting down...")
+		go c.Stop()
+		for i := 10; i > 0; i-- {
+			<-sigc
+			if i > 1 {
+				log.Warn("Already shutting down, interrupt more to panic.", "times", i-1)
+			}
+		}
+		debug.SetTraceback("all")
+		panic("")
+	}()
+	c.Wait()
 	return nil
 }
 
