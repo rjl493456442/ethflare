@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/fdlimit"
+	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
@@ -101,8 +102,10 @@ func listTiles(ctx *cli.Context) error {
 		hashes uint64
 		refs   uint64
 
-		largestHashes int
-		largestRefs   int
+		maxHashes int
+		maxRefs   int
+		minHashes = math.MaxInt32
+		minRefs   = math.MaxInt32
 
 		tileSize common.StorageSize
 		hashSize common.StorageSize
@@ -124,11 +127,17 @@ func listTiles(ctx *cli.Context) error {
 			tiles += 1
 			hashes += uint64(len(tile.Hashes))
 			refs += uint64(len(tile.Refs))
-			if len(tile.Hashes) > largestHashes {
-				largestHashes = len(tile.Hashes)
+			if len(tile.Hashes) > maxHashes {
+				maxHashes = len(tile.Hashes)
 			}
-			if len(tile.Refs) > largestRefs {
-				largestRefs = len(tile.Refs)
+			if len(tile.Refs) > maxRefs {
+				maxRefs = len(tile.Refs)
+			}
+			if len(tile.Hashes) < minHashes {
+				minHashes = len(tile.Hashes)
+			}
+			if len(tile.Refs) < minRefs {
+				minRefs = len(tile.Refs)
 			}
 		}
 		for _, ref := range tile.Refs {
@@ -139,15 +148,17 @@ func listTiles(ctx *cli.Context) error {
 
 	// Display the database statistic.
 	stats := [][]string{
-		{"tile size", tileSize.String()},
-		{"hash size", hashSize.String()},
-		{"refs store", refsSize.String()},
-		{"Total", fmt.Sprintf("%d", tiles)},
+		{"Tile size", tileSize.String()},
+		{"Hash size", hashSize.String()},
+		{"Refs size", refsSize.String()},
+		{"Total size", fmt.Sprintf("%d", tiles)},
 		{"Miss", fmt.Sprintf("%d", miss)},
 		{"Avg nodes", fmt.Sprintf("%.2f", float64(hashes)/float64(tiles))},
 		{"Avg refs", fmt.Sprintf("%.2f", float64(refs)/float64(tiles))},
-		{"Max node", fmt.Sprintf("%d", largestHashes)},
-		{"Max ref", fmt.Sprintf("%d", largestRefs)},
+		{"Max node", fmt.Sprintf("%d", maxHashes)},
+		{"Max ref", fmt.Sprintf("%d", maxRefs)},
+		{"Min node", fmt.Sprintf("%d", minHashes)},
+		{"Min ref", fmt.Sprintf("%d", minRefs)},
 	}
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Category", "Size/Count"})

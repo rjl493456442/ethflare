@@ -60,6 +60,8 @@ func init() {
 		dataDirFlag,
 		configFileFlag,
 		verbosityFlag,
+		pprofFlag,
+		pprofPortFlag,
 	}
 	cli.CommandHelpTemplate = utils.OriginCommandHelpTemplate
 }
@@ -90,6 +92,15 @@ var (
 		Usage: "Logging verbosity: 0=crit, 1=error, 2=warn, 3=info, 4=debug, 5=trace",
 		Value: 3,
 	}
+	pprofFlag = cli.BoolFlag{
+		Name:  "pprof",
+		Usage: "Enable pprof",
+	}
+	pprofPortFlag = cli.IntFlag{
+		Name:  "pport",
+		Usage: "The port assigned to pprof httpserver",
+		Value: 6060,
+	}
 )
 
 func main() {
@@ -112,6 +123,8 @@ var commandServer = cli.Command{
 		dataDirFlag,
 		configFileFlag,
 		verbosityFlag,
+		pprofFlag,
+		pprofPortFlag,
 	},
 	Action: utils.MigrateFlags(startServer),
 }
@@ -147,10 +160,13 @@ func startServer(ctx *cli.Context) error {
 
 	server := httpserver.NewHTTPServer(c)
 	go server.Start(config.HTTPHost, config.HTTPPort)
-	go func() {
-		http.ListenAndServe("localhost:6060", nil)
-	}()
 
+	if ctx.Bool(pprofFlag.Name) {
+		go func() {
+			address := fmt.Sprintf("localhost:%d", ctx.Int(pprofPortFlag.Name))
+			http.ListenAndServe(address, nil)
+		}()
+	}
 	go func() {
 		sigc := make(chan os.Signal, 1)
 		signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
