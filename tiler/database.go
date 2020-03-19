@@ -23,7 +23,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/rjl493456442/ethflare/database"
 	"github.com/rjl493456442/ethflare/types"
 )
@@ -117,13 +116,7 @@ func (diff *diffLayer) cap(db *tileDatabase, needDrop int) (*diffLayer, int, err
 	oldest := diff.oldest
 	for needDrop > 0 && oldest != (common.Hash{}) {
 		tile := diff.tiles[oldest]
-		enc, err := rlp.EncodeToBytes(tile)
-		if err != nil {
-			return nil, 0, err
-		}
-		if err := batch.Put(append(tilePrefix, oldest.Bytes()...), enc); err != nil {
-			return nil, 0, err
-		}
+		database.WriteTile(batch, oldest, &diff.tiles[oldest].Tile)
 		if batch.ValueSize() > ethdb.IdealBatchSize {
 			if err := batch.Write(); err != nil {
 				return nil, 0, err
@@ -135,9 +128,7 @@ func (diff *diffLayer) cap(db *tileDatabase, needDrop int) (*diffLayer, int, err
 	}
 	// Commit state root to represent the whole state is tiled.
 	if diff.state != (common.Hash{}) && oldest == (common.Hash{}) {
-		if err := batch.Put(headStateKey, diff.state.Bytes()); err != nil {
-			return nil, 0, err
-		}
+		database.WriteStateRoot(batch, diff.state)
 	}
 	// Write all accumulated changes into disk
 	if err := batch.Write(); err != nil {
@@ -187,11 +178,6 @@ func (diff *diffLayer) get(hash common.Hash) (*types.Tile, common.Hash) {
 const (
 	maxTilesThreshold  = 4096 // The maximum tiles can be maintained in memory
 	maxLayersThreshold = 12   // The maximum layers can be maintained in memory
-)
-
-var (
-	headStateKey = []byte("LatestState") // headStateKey tracks the latest committed state root
-	tilePrefix   = []byte("-t")          // tilePrefix + tilehash => tile
 )
 
 // tileDatabase is the tile metadata database which splits all tiles
@@ -311,6 +297,7 @@ func (db *tileDatabase) close() error {
 		}
 	}
 	if db.current != nil {
+		db.current.parent = nil
 		_, _, err := db.current.flush(db)
 		if err != nil {
 			return err

@@ -42,6 +42,25 @@ func createTestLayers(db *tileDatabase, n int) {
 	}
 }
 
+func checkDB(t *testing.T, db *tileDatabase, start, end int, existent bool) {
+	for i := start; i <= end; i++ {
+		has := db.has(common.HexToHash(fmt.Sprintf("%x", i)))
+		if existent && !has {
+			t.Fatalf("Tile %d should be included", i)
+		}
+		if !existent && has {
+			t.Fatalf("Tile %d shouldn't be included", i)
+		}
+		tile, _ := db.get(common.HexToHash(fmt.Sprintf("%x", i)))
+		if existent && tile == nil {
+			t.Fatalf("Tile %d should be included", i)
+		}
+		if !existent && tile != nil {
+			t.Fatalf("Tile %d shouldn't be included", i)
+		}
+	}
+}
+
 func TestFlushLayer(t *testing.T) {
 	db := newTileDatabase(rawdb.NewMemoryDatabase())
 	createTestLayers(db, 10)
@@ -110,40 +129,50 @@ func TestDatabaseQuery(t *testing.T) {
 	db := newTileDatabase(rawdb.NewMemoryDatabase())
 	createTestLayers(db, 10)
 
-	check := func(start, end int, existent bool) {
-		for i := start; i <= end; i++ {
-			has := db.has(common.HexToHash(fmt.Sprintf("%x", i)))
-			if existent && !has {
-				t.Fatal("Tile should be included")
-			}
-			if !existent && has {
-				t.Fatal("Tile shouldn't be included")
-			}
-			tile, _ := db.get(common.HexToHash(fmt.Sprintf("%x", i)))
-			if existent && tile == nil {
-				t.Fatal("Tile should be included")
-			}
-			if !existent && tile != nil {
-				t.Fatal("Tile shouldn't be included")
-			}
-		}
-	}
 	// Check existence
-	check(1, 100, true)
+	checkDB(t, db, 1, 100, true)
 
 	// Check nonexistence
-	check(101, 120, false)
+	checkDB(t, db, 101, 120, false)
 
 	// Check existence after flushing
 	latest := db.diffset[db.latest]
 	latest.flush(db)
-	check(1, 100, true)
+	checkDB(t, db, 1, 100, true)
 
 	// Check existence after capping
 	latest.cap(db, 85)
-	check(1, 100, true)
+	checkDB(t, db, 1, 100, true)
 
 	// Check existence after capping all
 	latest.cap(db, 5)
-	check(1, 100, true)
+	checkDB(t, db, 1, 100, true)
+}
+
+func TestDatabaseClose(t *testing.T) {
+	mdb := rawdb.NewMemoryDatabase()
+	db := newTileDatabase(mdb)
+	createTestLayers(db, 10)
+
+	var data = []struct {
+		hash    common.Hash
+		depth   uint8
+		size    common.StorageSize
+		hashmap map[common.Hash]struct{}
+		refs    []common.Hash
+	}{
+		{common.HexToHash(fmt.Sprintf("%x", 101)), 1, 100, nil, nil},
+		{common.HexToHash(fmt.Sprintf("%x", 102)), 2, 100, nil, nil},
+		{common.HexToHash(fmt.Sprintf("%x", 103)), 3, 100, nil, nil},
+		{common.HexToHash(fmt.Sprintf("%x", 104)), 4, 100, nil, nil},
+		{common.HexToHash(fmt.Sprintf("%x", 105)), 5, 100, nil, nil},
+	}
+	for _, d := range data {
+		db.insert(d.hash, d.depth, d.size, d.hashmap, d.refs)
+	}
+	db.close()
+
+	// Reopen the database, everything committed should be here
+	db = newTileDatabase(mdb)
+	checkDB(t, db, 1, 105, true)
 }

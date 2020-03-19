@@ -74,9 +74,16 @@ var commandInspect = cli.Command{
 	Usage: "Inspect tile database for many purposes",
 	Subcommands: []cli.Command{
 		{
-			Name:   "list",
-			Usage:  "Iterate the tile database and list all content",
-			Flags:  []cli.Flag{dataDirFlag},
+			Name:  "list",
+			Usage: "Iterate the tile database and list all content",
+			Flags: []cli.Flag{
+				dataDirFlag,
+				cli.StringFlag{
+					Name:  "root",
+					Usage: "Specify the state root hash which iterates from",
+					Value: "",
+				},
+			},
 			Action: utils.MigrateFlags(listTiles),
 		},
 	},
@@ -92,6 +99,9 @@ func listTiles(ctx *cli.Context) error {
 		utils.Fatalf("Failed to open database %v", err)
 	}
 	root, _ := database.ReadStateRoot(db)
+	if given := ctx.String("root"); given != "" {
+		root = common.HexToHash(given)
+	}
 	if root == (common.Hash{}) {
 		fmt.Println("Uncompleted database")
 		return nil
