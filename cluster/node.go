@@ -174,7 +174,7 @@ func (n *Node) updateAll(head *types.Header, depth int, init bool) error {
 	// head, the entire parent chain needs to be discarded since there's no way to
 	// know if associated state is present or not (node reboot)
 	if depth >= params.RecentnessCutoff {
-		if init {
+		if !init {
 			return errors.New("exceeded recentness custoff threshold")
 		}
 		return nil

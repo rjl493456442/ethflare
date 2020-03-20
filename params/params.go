@@ -22,5 +22,5 @@ const (
 	RecentnessCutoff = 64
 
 	// TileMinimalSize is the number of nodes a tile must include(except the root)
-	TileMinimalSize = 0
+	TileMinimalSize = 8
 )
