@@ -143,25 +143,14 @@ func (n *Node) update(head *types.Header) error {
 	defer n.lock.Unlock()
 
 	// If the Node is fresh new, track the header here.
-	hash := head.Hash()
 	if len(n.headers) == 0 {
-		n.recents.Push(hash, -head.Number.Int64())
-		n.headers[hash] = head
-		n.states[head.Root]++
-		if n.states[head.Root] == 1 {
-			n.logger.Debug("Tracking new state", "root", head.Root)
-		}
+		n.updateAll(head, 0, true)
 		return nil
 	}
 	// Already track a batch of headers, ensure they are still valid.
-	if err := n.updateAll(head, 0); err != nil {
+	if err := n.updateAll(head, 0, false); err != nil {
 		n.reset()
-		n.recents.Push(hash, -head.Number.Int64())
-		n.headers[hash] = head
-		n.states[head.Root]++
-		if n.states[head.Root] == 1 {
-			n.logger.Debug("Tracking new state", "root", head.Root)
-		}
+		n.updateAll(head, 0, true)
 	}
 	return nil
 }
@@ -175,7 +164,7 @@ func (n *Node) reset() {
 // updateAll is the internal version update which assumes the lock is already held.
 // updateAll recursively updates all parent information of given header, terminates
 // if the depth is too high.
-func (n *Node) updateAll(head *types.Header, depth int) error {
+func (n *Node) updateAll(head *types.Header, depth int, init bool) error {
 	// If the header is known already known, bail out
 	hash := head.Hash()
 	if _, ok := n.headers[hash]; ok {
@@ -185,7 +174,10 @@ func (n *Node) updateAll(head *types.Header, depth int) error {
 	// head, the entire parent chain needs to be discarded since there's no way to
 	// know if associated state is present or not (node reboot)
 	if depth >= params.RecentnessCutoff {
-		return errors.New("exceeded recentness custoff threshold")
+		if init {
+			return errors.New("exceeded recentness custoff threshold")
+		}
+		return nil
 	}
 	// Otherwise track all parents first, then the new head
 	if head.Number.Uint64() > 0 {
@@ -196,7 +188,7 @@ func (n *Node) updateAll(head *types.Header, depth int) error {
 		if err != nil {
 			return err
 		}
-		if err := n.updateAll(parent, depth+1); err != nil {
+		if err := n.updateAll(parent, depth+1, init); err != nil {
 			n.logger.Warn("Rejecting uncertain state block", "number", parent.Number, "hash", parent.Hash(), "err", err)
 			if depth > 0 { // Head is surely available, it was just announced
 				return errors.New("couldn't prove state availability")
