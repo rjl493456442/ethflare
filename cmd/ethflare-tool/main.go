@@ -106,6 +106,7 @@ func listTiles(ctx *cli.Context) error {
 		fmt.Println("Uncompleted database")
 		return nil
 	}
+	fmt.Printf("Inspecting(%x)...\n", root)
 	var (
 		tiles   uint64 // The total number of tile
 		miss    uint64 // The total number of missing tile(broken db)

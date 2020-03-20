@@ -85,12 +85,12 @@ func newGenerator(state common.Hash, database *tileDatabase, stat *statistic) *g
 	return g
 }
 
-// hasTile returns indicators whether a specified tile is crawled.
+// hasTile returns indicator whether a specified tile is crawled.
 func (g *generator) hasTile(hash common.Hash) bool {
 	if g.deliveries[hash] != nil {
 		return true
 	}
-	return g.database.has(hash) // It's quite IO expensive, bloom filter can help it a lot
+	return g.database.has(hash) // It's quite IO expensive, bloom filter can help it a bit
 }
 
 // getTile returns the tile if it's already crawled(may or may not committed)
@@ -159,12 +159,6 @@ func (g *generator) addTask(hash common.Hash, depth uint8, parent common.Hash, o
 		req.parents = append(req.parents, ancestor)
 	}
 	g.schedule(req)
-
-	if onLeaf != nil {
-		atomic.AddUint32(&g.stat.stateTask, 1)
-	} else {
-		atomic.AddUint32(&g.stat.storageTask, 1)
-	}
 	log.Debug("Add task", "hash", hash, "parent", parent, "depth", depth, "storage", onLeaf == nil)
 }
 
@@ -192,12 +186,19 @@ func (g *generator) reference(parent, child common.Hash) {
 func (g *generator) schedule(req *tileRequest) {
 	// If we're already requesting this node, add a new reference and stop.
 	if old, ok := g.requests[req.hash]; ok {
+		atomic.AddUint32(&g.stat.mergedTask, 1)
 		old.parents = append(old.parents, req.parents...)
 		return
 	}
 	// Schedule the request for future retrieval
 	g.queue.Push(req.hash, int64(req.depth))
 	g.requests[req.hash] = req
+
+	if req.onLeaf != nil {
+		atomic.AddUint32(&g.stat.stateTask, 1)
+	} else {
+		atomic.AddUint32(&g.stat.storageTask, 1)
+	}
 }
 
 // assignTasks pops a task from queue which is not sent
@@ -221,7 +222,7 @@ func (g *generator) assignTasks(nodeid string) common.Hash {
 		}
 		request.attempts[nodeid] = struct{}{}
 		if hash == (common.Hash{}) {
-			log.Error("Invalid task")
+			panic("Empty task")
 		}
 		return hash
 	}
@@ -262,9 +263,10 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 		atomic.AddUint32(&g.stat.unsolicitedReply, 1)
 		return errors.New("non-existent request")
 	}
-	request := g.requests[delivery.hash]
+	atomic.AddUint32(&g.stat.deliveries, 1)
 
 	// If tile retrieval failed or nothing returned, reschedule it
+	request := g.requests[delivery.hash]
 	if delivery.err != nil || len(delivery.nodes) == 0 {
 		// Check whether there still exists some available nodes to retry.
 		// It might exists some data race that some nodes is removed after
@@ -288,13 +290,9 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 		delete(g.requests, delivery.hash)
 		return nil
 	}
-	// Decode the nodes in the tile and continue expansion to newly discovered ones
-	var (
-		removed     []int
-		removedRefs = make(map[common.Hash]bool)
-	)
 	// Eliminate the intermediate nodes and their children if they are already tiled.
 	var i int
+	var removedRefs = make(map[common.Hash]bool)
 	delivery.hashes = make(map[common.Hash]struct{})
 	for index, node := range delivery.nodes {
 		hash := crypto.Keccak256Hash(node)
@@ -309,7 +307,6 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 				_ = g.commitParent(request)
 				return nil
 			}
-			removed = append(removed, index)
 			_ = trie.IterateRefs(node, func(path []byte, child common.Hash) error {
 				removedRefs[child] = true
 				return nil
@@ -320,7 +317,7 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 		delivery.hashes[hash] = struct{}{}
 		i++
 	}
-	if len(delivery.nodes) > i+1 {
+	if len(delivery.nodes) >= i+1 {
 		atomic.AddUint32(&g.stat.dropPartialTile, 1)
 	}
 	delivery.nodes = delivery.nodes[:i]
@@ -345,11 +342,6 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 						attempts: make(map[string]struct{}),
 						onLeaf:   request.onLeaf,
 					})
-					if request.onLeaf != nil {
-						atomic.AddUint32(&g.stat.stateTask, 1)
-					} else {
-						atomic.AddUint32(&g.stat.storageTask, 1)
-					}
 				}
 			}
 			return nil

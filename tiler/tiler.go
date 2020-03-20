@@ -58,6 +58,8 @@ type statistic struct {
 	mergeTile        uint32 // Counter for small tile be merged
 	duplicateTask    uint32 // Counter of allocated but duplicated task
 	emptyTask        uint32 // Counter of allocated but empty task
+	mergedTask       uint32 // Counter of merged task
+	deliveries       uint32 // Counter of received deliveries
 	failures         uint32 // Counter of tile task failures
 	unsolicitedReply uint32 // Counter of unsolicited response
 }
@@ -300,10 +302,9 @@ func (t *Tiler) logger() {
 			return
 		case <-ticker.C:
 			log.Info("Tiler progress", "state", atomic.LoadUint32(&t.stat.stateTask), "storage", atomic.LoadUint32(&t.stat.storageTask),
-				"drop", atomic.LoadUint32(&t.stat.dropEntireTile), "droppart", atomic.LoadUint32(&t.stat.dropPartialTile),
-				"merge", atomic.LoadUint32(&t.stat.mergeTile), "duplicate", atomic.LoadUint32(&t.stat.duplicateTask),
-				"empty", atomic.LoadUint32(&t.stat.emptyTask), "failure", atomic.LoadUint32(&t.stat.failures),
-				"unsolicited", atomic.LoadUint32(&t.stat.unsolicitedReply))
+				"drop", atomic.LoadUint32(&t.stat.dropEntireTile), "droppart", atomic.LoadUint32(&t.stat.dropPartialTile), "mergedtile", atomic.LoadUint32(&t.stat.mergeTile),
+				"duplicate", atomic.LoadUint32(&t.stat.duplicateTask), "empty", atomic.LoadUint32(&t.stat.emptyTask), "merged", atomic.LoadUint32(&t.stat.mergedTask),
+				"deliveries", atomic.LoadUint32(&t.stat.deliveries), "failure", atomic.LoadUint32(&t.stat.failures), "unsolicited", atomic.LoadUint32(&t.stat.unsolicitedReply))
 		}
 	}
 }
