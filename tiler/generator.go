@@ -64,7 +64,7 @@ type generator struct {
 	state      common.Hash
 	requests   map[common.Hash]*tileRequest
 	deliveries map[common.Hash]*tileDelivery
-	externRefs map[common.Hash][]common.Hash
+	externRefs map[common.Hash]map[common.Hash]int
 	queue      *prque.Prque
 	database   *tileDatabase
 	stat       *statistic
@@ -76,7 +76,7 @@ func newGenerator(state common.Hash, database *tileDatabase, stat *statistic) *g
 		state:      state,
 		requests:   make(map[common.Hash]*tileRequest),
 		deliveries: make(map[common.Hash]*tileDelivery),
-		externRefs: make(map[common.Hash][]common.Hash),
+		externRefs: make(map[common.Hash]map[common.Hash]int),
 		database:   database,
 		queue:      prque.New(nil),
 		stat:       stat,
@@ -167,16 +167,14 @@ func (g *generator) reference(parent, child common.Hash) {
 	if child == emptyRoot {
 		return
 	}
-	// If it's already referenced, skip it.
+	// If it's already referenced, bump the reference count
 	// It can happen the parent tile includes account A, B, C
 	// While the root storage tile of A, B, C can be same(e.g.
 	// factory contract)
-	for _, h := range g.externRefs[parent] {
-		if h == child {
-			return
-		}
+	if _, ok := g.externRefs[parent]; !ok {
+		g.externRefs[parent] = make(map[common.Hash]int)
 	}
-	g.externRefs[parent] = append(g.externRefs[parent], child)
+	g.externRefs[parent][child] += 1
 	log.Trace("Reference externally", "parent", parent, "child", child)
 }
 
@@ -381,11 +379,38 @@ func (g *generator) commit(req *tileRequest, delivery *tileDelivery) error {
 			for hash := range delivery.hashes {
 				parent.hashes[hash] = struct{}{}
 			}
+			// Wipe the reference in parent. There are two spaces can contain the ref:
+			// 1) the parent's delivery packet
+			// 2) the external map
+			// If nothing found, panic is expected.
+			var removed bool
 			for index, ref := range parent.refs {
 				if ref == req.hash {
+					removed = true
 					parent.refs = append(parent.refs[:index], parent.refs[index+1:]...)
 					break
 				}
+			}
+			if !removed {
+				refs := g.externRefs[p.hash]
+				if refs != nil {
+					refs[req.hash] -= 1
+					if refs[req.hash] == 0 {
+						delete(g.externRefs[p.hash], req.hash)
+					}
+					removed = true
+				}
+			}
+			if !removed {
+				fmt.Println("EXTERNAL")
+				for hash, count := range g.externRefs[p.hash] {
+					fmt.Println("parent", p.hash.Hex(), "ref", hash.Hex(), "count", count, "self", req.hash.Hex())
+				}
+				fmt.Println("INTERNAL")
+				for _, ref := range parent.refs {
+					fmt.Println("parent", p.hash.Hex(), "ref", ref.Hex(), "self", req.hash.Hex())
+				}
+				panic("no reference found")
 			}
 			parent.refs = append(parent.refs, delivery.refs...)
 		}
@@ -402,7 +427,9 @@ func (g *generator) commit(req *tileRequest, delivery *tileDelivery) error {
 	// If the committed tile is a leaf of state trie,
 	// add the additional external reference.
 	if children, ok := g.externRefs[req.hash]; ok {
-		delivery.refs = append(delivery.refs, children...)
+		for hash := range children {
+			delivery.refs = append(delivery.refs, hash)
+		}
 		delete(g.externRefs, req.hash)
 	}
 	if err := g.database.insert(req.hash, req.depth, storage, delivery.hashes, delivery.refs); err != nil {
