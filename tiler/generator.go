@@ -402,14 +402,6 @@ func (g *generator) commit(req *tileRequest, delivery *tileDelivery) error {
 				}
 			}
 			if !removed {
-				fmt.Println("EXTERNAL")
-				for hash, count := range g.externRefs[p.hash] {
-					fmt.Println("parent", p.hash.Hex(), "ref", hash.Hex(), "count", count, "self", req.hash.Hex())
-				}
-				fmt.Println("INTERNAL")
-				for _, ref := range parent.refs {
-					fmt.Println("parent", p.hash.Hex(), "ref", ref.Hex(), "self", req.hash.Hex())
-				}
 				panic("no reference found")
 			}
 			parent.refs = append(parent.refs, delivery.refs...)
