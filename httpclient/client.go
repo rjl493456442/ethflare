@@ -20,12 +20,13 @@ package httpclient
 import (
 	"context"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/rlp"
 	"io/ioutil"
 	"net/http"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 // Client is an HTTP client which connects the ethflare server.
@@ -53,8 +54,8 @@ func (client *Client) GetBlockHeader(ctx context.Context, hash common.Hash) (*ty
 	return &header, nil
 }
 
-func (client *Client) GetBlockUncles(ctx context.Context, hash common.Hash) ([]types.Header, error) {
-	var headers []types.Header
+func (client *Client) GetUncles(ctx context.Context, hash common.Hash) ([]*types.Header, error) {
+	var headers []*types.Header
 	res, err := httpDo(ctx, fmt.Sprintf("%s/chain/0x%x/uncles", client.URL, hash))
 	if err != nil {
 		return nil, err
@@ -63,6 +64,30 @@ func (client *Client) GetBlockUncles(ctx context.Context, hash common.Hash) ([]t
 		return nil, err
 	}
 	return headers, nil
+}
+
+func (client *Client) GetTransactions(ctx context.Context, hash common.Hash) (types.Transactions, error) {
+	var txs types.Transactions
+	res, err := httpDo(ctx, fmt.Sprintf("%s/chain/0x%x/transactions", client.URL, hash))
+	if err != nil {
+		return nil, err
+	}
+	if err := rlp.DecodeBytes(res, &txs); err != nil {
+		return nil, err
+	}
+	return txs, nil
+}
+
+func (client *Client) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
+	var receipts types.Receipts
+	res, err := httpDo(ctx, fmt.Sprintf("%s/chain/0x%x/receipts", client.URL, hash))
+	if err != nil {
+		return nil, err
+	}
+	if err := rlp.DecodeBytes(res, &receipts); err != nil {
+		return nil, err
+	}
+	return receipts, nil
 }
 
 func (client *Client) GetStateTile(ctx context.Context, hash common.Hash) ([][]byte, error) {

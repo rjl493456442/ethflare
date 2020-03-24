@@ -17,19 +17,25 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"math/big"
 	"os"
 	"path"
+	"time"
 
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/fdlimit"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/common/prque"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/olekukonko/tablewriter"
 	"github.com/rjl493456442/ethflare/database"
+	"github.com/rjl493456442/ethflare/httpclient"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -44,7 +50,8 @@ var app *cli.App
 func init() {
 	app = utils.NewApp(gitCommit, gitDate, "ethflare(ethereum data cdn)")
 	app.Commands = []cli.Command{
-		commandInspect,
+		commandDBTool,
+		commandNetworkTool,
 	}
 	app.Flags = []cli.Flag{}
 	cli.CommandHelpTemplate = utils.OriginCommandHelpTemplate
@@ -56,6 +63,16 @@ var (
 		Name:  "datadir",
 		Usage: "Data directory for the ethflare indexes and metadata",
 		Value: utils.DirectoryString(path.Join(node.DefaultDataDir(), "ethflare")),
+	}
+	serverHostFlag = cli.StringFlag{
+		Name:  "host",
+		Value: "localhost",
+		Usage: "The http endpoint server listens at",
+	}
+	serverPortFlag = cli.IntFlag{
+		Name:  "port",
+		Value: 9999,
+		Usage: "The http endpoint server listens at",
 	}
 )
 
@@ -69,12 +86,12 @@ func main() {
 	}
 }
 
-var commandInspect = cli.Command{
-	Name:  "inspect",
-	Usage: "Inspect tile database for many purposes",
+var commandDBTool = cli.Command{
+	Name:  "database",
+	Usage: "A set of database tools for debugging",
 	Subcommands: []cli.Command{
 		{
-			Name:  "list",
+			Name:  "list-tiles",
 			Usage: "Iterate the tile database and list all content",
 			Flags: []cli.Flag{
 				dataDirFlag,
@@ -85,6 +102,36 @@ var commandInspect = cli.Command{
 				},
 			},
 			Action: utils.MigrateFlags(listTiles),
+		},
+	},
+}
+
+var commandNetworkTool = cli.Command{
+	Name:  "network",
+	Usage: "A set of network tools for debugging",
+	Subcommands: []cli.Command{
+		{
+			Name:  "list-chain",
+			Usage: "Crawl all blocks via http",
+			Flags: []cli.Flag{
+				serverHostFlag,
+				serverPortFlag,
+				cli.IntFlag{
+					Name:  "start",
+					Usage: "Specify the start block number which iterates from",
+					Value: 1,
+				},
+				cli.IntFlag{
+					Name:  "end",
+					Usage: "Specify the end block number which iterates to",
+					Value: 1,
+				},
+				cli.StringFlag{
+					Name:  "rpc",
+					Usage: "Specify the rpc endpoint of Geth node",
+				},
+			},
+			Action: utils.MigrateFlags(listChain),
 		},
 	},
 }
@@ -103,7 +150,7 @@ func listTiles(ctx *cli.Context) error {
 		root = common.HexToHash(given)
 	}
 	if root == (common.Hash{}) {
-		fmt.Println("Uncompleted database")
+		fmt.Println("Incomplete database")
 		return nil
 	}
 	fmt.Printf("Inspecting(%x)...\n", root)
@@ -128,6 +175,7 @@ func listTiles(ctx *cli.Context) error {
 	queue.Push(root, 0)
 	for !queue.Empty() {
 		hash, prio := queue.Pop()
+
 		tile, _ := database.ReadTile(db, hash.(common.Hash))
 		if tile == nil {
 			miss += 1
@@ -184,5 +232,47 @@ func listTiles(ctx *cli.Context) error {
 	table.SetHeader([]string{"Category", "Size/Count"})
 	table.AppendBulk(stats)
 	table.Render()
+	return nil
+}
+
+func listChain(ctx *cli.Context) error {
+	client := httpclient.NewClient(fmt.Sprintf("%s:%d", ctx.String(serverHostFlag.Name), ctx.Int(serverPortFlag.Name)))
+	start, end := ctx.Int("start"), ctx.Int("end")
+
+	rpc, err := rpc.Dial(ctx.String("rpc"))
+	if err != nil {
+		utils.Fatalf("Failed to connect rpc %v", err)
+	}
+	geth := ethclient.NewClient(rpc)
+
+	var iterated int
+	var now = time.Now()
+	for i := start; i < end; i++ {
+		block, err := geth.BlockByNumber(context.Background(), big.NewInt(int64(i)))
+		if err != nil {
+			utils.Fatalf("Failed to retrieve block %v", err)
+		}
+		hash := block.Hash()
+		_, err = client.GetBlockHeader(context.Background(), hash)
+		if err != nil {
+			utils.Fatalf("Failed to retrieve header %v", err)
+		}
+		_, err = client.GetUncles(context.Background(), hash)
+		if err != nil {
+			utils.Fatalf("Failed to retrieve uncles %v", err)
+		}
+		_, err = client.GetTransactions(context.Background(), hash)
+		if err != nil {
+			utils.Fatalf("Failed to retrieve transactions %v", err)
+		}
+		_, err = client.GetReceipts(context.Background(), hash)
+		if err != nil {
+			utils.Fatalf("Failed to retrieve receipts %v", err)
+		}
+		iterated += 1
+		if iterated%10000 == 0 {
+			log.Info("Iterated chain", "start", start, "now", i, "elapsed", common.PrettyDuration(time.Since(now)))
+		}
+	}
 	return nil
 }
