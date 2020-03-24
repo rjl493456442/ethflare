@@ -29,13 +29,16 @@ import (
 	"github.com/ethereum/go-ethereum/common/fdlimit"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/common/prque"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/olekukonko/tablewriter"
 	"github.com/rjl493456442/ethflare/database"
 	"github.com/rjl493456442/ethflare/httpclient"
+	"golang.org/x/crypto/sha3"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -236,6 +239,13 @@ func listTiles(ctx *cli.Context) error {
 }
 
 func listChain(ctx *cli.Context) error {
+	var emptyUncle common.Hash
+	hw := sha3.NewLegacyKeccak256()
+	rlp.Encode(hw, []*types.Header(nil))
+	hw.Sum(emptyUncle[:0])
+
+	emptyTxs := types.DeriveSha(types.Transactions{})
+
 	client := httpclient.NewClient(fmt.Sprintf("%s:%d", ctx.String(serverHostFlag.Name), ctx.Int(serverPortFlag.Name)))
 	start, end := ctx.Int("start"), ctx.Int("end")
 
@@ -257,17 +267,21 @@ func listChain(ctx *cli.Context) error {
 		if err != nil {
 			utils.Fatalf("Failed to retrieve header %v", err)
 		}
-		_, err = client.GetUncles(context.Background(), hash)
-		if err != nil {
-			utils.Fatalf("Failed to retrieve uncles %v", err)
+		if block.UncleHash() != emptyUncle {
+			_, err = client.GetUncles(context.Background(), hash)
+			if err != nil {
+				utils.Fatalf("Failed to retrieve uncles %v", err)
+			}
 		}
-		_, err = client.GetTransactions(context.Background(), hash)
-		if err != nil {
-			utils.Fatalf("Failed to retrieve transactions %v", err)
-		}
-		_, err = client.GetReceipts(context.Background(), hash)
-		if err != nil {
-			utils.Fatalf("Failed to retrieve receipts %v", err)
+		if block.TxHash() != emptyTxs {
+			_, err = client.GetTransactions(context.Background(), hash)
+			if err != nil {
+				utils.Fatalf("Failed to retrieve transactions %v", err)
+			}
+			_, err = client.GetReceipts(context.Background(), hash)
+			if err != nil {
+				utils.Fatalf("Failed to retrieve receipts %v", err)
+			}
 		}
 		iterated += 1
 		if iterated%10000 == 0 {
