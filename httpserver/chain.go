@@ -91,6 +91,7 @@ func (s *HTTPServer) serveChainItem(hash common.Hash) http.Handler {
 				receipts := out.(types.Receipts)
 				replyAndCache(w, receipts)
 				log.Debug("Served chain item", "type", "receipts", "hash", hash)
+				return
 			}
 			// Receipts not found, error out appropriately
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
