@@ -50,12 +50,11 @@ type tileRequest struct {
 
 // tileDelivery is a tile creation event tagged with the origin backend.
 type tileDelivery struct {
-	origin string                   // backend that should be marked idle on delivery
-	hash   common.Hash              // Trie node (tile root) to reschedule upon failure
-	nodes  [][]byte                 // Delivered tile data upon success
-	hashes map[common.Hash]struct{} // Hashes of included nodes, derived later
-	refs   []common.Hash            // Tile references, derived later
-	err    error                    // Encountered error upon failure
+	origin string        // backend that should be marked idle on delivery
+	hash   common.Hash   // Trie node (tile root) to reschedule upon failure
+	nodes  [][]byte      // Delivered tile data upon success
+	refs   []common.Hash // Tile references, derived later
+	err    error         // Encountered error upon failure
 }
 
 // generator is responsible for keeping track of pending state-tile crawl jobs
@@ -103,14 +102,10 @@ func (g *generator) getTile(hash common.Hash) (*types.Tile, common.Hash) {
 	// Search in memory cache first
 	if t := g.deliveries[hash]; t != nil {
 		req := g.requests[hash]
-		var hashes []common.Hash
-		for hash := range t.hashes {
-			hashes = append(hashes, hash)
-		}
 		return &types.Tile{
-			Depth:  req.depth,
-			Hashes: hashes,
-			Refs:   t.refs,
+			Depth: req.depth,
+			Nodes: uint16(len(t.nodes)),
+			Refs:  t.refs,
 		}, g.state // It's in memory, return target state hash
 	}
 	// Then search it in the database
@@ -291,7 +286,7 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 	// Eliminate the intermediate nodes and their children if they are already tiled.
 	var i int
 	var removedRefs = make(map[common.Hash]bool)
-	delivery.hashes = make(map[common.Hash]struct{})
+	hashes := make(map[common.Hash]struct{})
 	for index, node := range delivery.nodes {
 		hash := crypto.Keccak256Hash(node)
 		if g.hasTile(hash) || removedRefs[hash] {
@@ -312,7 +307,7 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 			continue
 		}
 		delivery.nodes[i] = node
-		delivery.hashes[hash] = struct{}{}
+		hashes[hash] = struct{}{}
 		i++
 	}
 	if len(delivery.nodes) >= i+1 {
@@ -328,7 +323,7 @@ func (g *generator) process(delivery *tileDelivery, nodes []string) error {
 	for _, node := range delivery.nodes {
 		_ = trie.IterateRefs(node, func(path []byte, child common.Hash) error {
 			depths[child] = depths[crypto.Keccak256Hash(node)] + uint8(len(path))
-			if _, ok := delivery.hashes[child]; !ok {
+			if _, ok := hashes[child]; !ok {
 				delivery.refs = append(delivery.refs, child)
 
 				// Add the ref as the task if it's still not crawled.
@@ -376,9 +371,6 @@ func (g *generator) commit(req *tileRequest, delivery *tileDelivery) error {
 		for _, p := range req.parents {
 			parent := g.deliveries[p.hash]
 			parent.nodes = append(parent.nodes, delivery.nodes...)
-			for hash := range delivery.hashes {
-				parent.hashes[hash] = struct{}{}
-			}
 			// Wipe the reference in parent. There are two spaces can contain the ref:
 			// 1) the parent's delivery packet
 			// 2) the external map
@@ -424,7 +416,7 @@ func (g *generator) commit(req *tileRequest, delivery *tileDelivery) error {
 		}
 		delete(g.externRefs, req.hash)
 	}
-	if err := g.database.insert(req.hash, req.depth, storage, delivery.hashes, delivery.refs); err != nil {
+	if err := g.database.insert(req.hash, req.depth, uint16(len(delivery.nodes)), storage, delivery.refs); err != nil {
 		return err
 	}
 	delete(g.deliveries, req.hash)

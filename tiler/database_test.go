@@ -26,12 +26,8 @@ import (
 
 func createTestLayer(db *tileDatabase, state common.Hash, start int) {
 	for i := 0; i < 10; i++ {
-		hashes := map[common.Hash]struct{}{
-			common.HexToHash("deadbeef"): {},
-			common.HexToHash("cafebabe"): {},
-		}
 		refs := []common.Hash{common.HexToHash("deadbeef"), common.HexToHash("cafebabe")}
-		db.insert(common.HexToHash(fmt.Sprintf("%x", start*10+i+1)), uint8(i), common.StorageSize(100), hashes, refs)
+		db.insert(common.HexToHash(fmt.Sprintf("%x", start*10+i+1)), uint8(i), uint16(2), common.StorageSize(100), refs)
 	}
 	db.commit(state)
 }
@@ -155,20 +151,20 @@ func TestDatabaseClose(t *testing.T) {
 	createTestLayers(db, 10)
 
 	var data = []struct {
-		hash    common.Hash
-		depth   uint8
-		size    common.StorageSize
-		hashmap map[common.Hash]struct{}
-		refs    []common.Hash
+		hash   common.Hash
+		depth  uint8
+		number uint16
+		size   common.StorageSize
+		refs   []common.Hash
 	}{
-		{common.HexToHash(fmt.Sprintf("%x", 101)), 1, 100, nil, nil},
-		{common.HexToHash(fmt.Sprintf("%x", 102)), 2, 100, nil, nil},
-		{common.HexToHash(fmt.Sprintf("%x", 103)), 3, 100, nil, nil},
-		{common.HexToHash(fmt.Sprintf("%x", 104)), 4, 100, nil, nil},
-		{common.HexToHash(fmt.Sprintf("%x", 105)), 5, 100, nil, nil},
+		{common.HexToHash(fmt.Sprintf("%x", 101)), 1, 2, 100, nil},
+		{common.HexToHash(fmt.Sprintf("%x", 102)), 2, 2, 100, nil},
+		{common.HexToHash(fmt.Sprintf("%x", 103)), 3, 2, 100, nil},
+		{common.HexToHash(fmt.Sprintf("%x", 104)), 4, 2, 100, nil},
+		{common.HexToHash(fmt.Sprintf("%x", 105)), 5, 2, 100, nil},
 	}
 	for _, d := range data {
-		db.insert(d.hash, d.depth, d.size, d.hashmap, d.refs)
+		db.insert(d.hash, d.depth, d.number, d.size, d.refs)
 	}
 	db.close()
 

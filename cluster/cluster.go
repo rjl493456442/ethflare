@@ -198,5 +198,5 @@ func (c *Cluster) getNodes(ctx context.Context, hash common.Hash) ([][]byte, err
 	// Even the node has state and tile **is** referenced by the state,
 	// the call can still return nil data seems the given state may be
 	// wrong. In this case, the tile data is not available anyway.
-	return nodes[c.rand.Intn(len(nodes))].GetNodes(ctx, tile.Hashes)
+	return nodes[c.rand.Intn(len(nodes))].GetNodes(ctx, hash, tile.Nodes, tile.Refs)
 }

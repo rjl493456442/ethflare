@@ -274,15 +274,15 @@ func (n *Node) GetTile(ctx context.Context, hash common.Hash) ([][]byte, error) 
 
 // GetNodes sends a RPC request for retrieving specified nodes with
 // with given node hash list.
-func (n *Node) GetNodes(ctx context.Context, hashes []common.Hash) ([][]byte, error) {
+func (n *Node) GetNodes(ctx context.Context, hash common.Hash, number uint16, cutoff []common.Hash) ([][]byte, error) {
 	if err := n.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
-	n.logger.Trace("Fetching state nodes", "number", len(hashes))
+	n.logger.Trace("Fetching state nodes", "hash", hash, "number", number)
 
 	var result [][]byte
 	start := time.Now()
-	err := n.conn.CallContext(ctx, &result, "cdn_nodes", hashes)
+	err := n.conn.CallContext(ctx, &result, "cdn_nodes", hash, number, cutoff)
 	if err != nil {
 		n.logger.Trace("Failed to fetch state nodes", "error", err)
 	} else {

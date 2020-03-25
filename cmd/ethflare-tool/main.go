@@ -160,19 +160,17 @@ func listTiles(ctx *cli.Context) error {
 	var (
 		tiles   uint64 // The total number of tile
 		miss    uint64 // The total number of missing tile(broken db)
-		hashes  uint64 // The total number of trie node
+		nodes   uint64 // The total number of trie node
 		refs    uint64 // The total number of references
 		state   uint64 // The tile number of state trie
 		storage uint64 // The tile number of storage trie
 
-		maxHashes int
-		maxRefs   int
-		minHashes = math.MaxInt32
-		minRefs   = math.MaxInt32
+		maxNodes uint16
+		maxRefs  int
+		minNodes = uint16(math.MaxUint16)
+		minRefs  = math.MaxInt32
 
 		tileSize common.StorageSize
-		hashSize common.StorageSize
-		refsSize common.StorageSize
 	)
 	queue := prque.New(nil)
 	queue.Push(root, 0)
@@ -184,21 +182,19 @@ func listTiles(ctx *cli.Context) error {
 			miss += 1
 			continue
 		} else {
-			tileSize += common.StorageSize(common.HashLength * (len(tile.Hashes) + len(tile.Refs)))
-			hashSize += common.StorageSize(common.HashLength * len(tile.Hashes))
-			refsSize += common.StorageSize(common.HashLength * len(tile.Refs))
+			tileSize += common.StorageSize(common.HashLength*len(tile.Refs) + 3)
 
 			tiles += 1
-			hashes += uint64(len(tile.Hashes))
-			refs += uint64(len(tile.Refs))
-			if len(tile.Hashes) > maxHashes {
-				maxHashes = len(tile.Hashes)
+			nodes += uint64(tile.Nodes)
+			if tile.Nodes > maxNodes {
+				maxNodes = tile.Nodes
 			}
+			if tile.Nodes < minNodes {
+				minNodes = tile.Nodes
+			}
+			refs += uint64(len(tile.Refs))
 			if len(tile.Refs) > maxRefs {
 				maxRefs = len(tile.Refs)
-			}
-			if len(tile.Hashes) < minHashes {
-				minHashes = len(tile.Hashes)
 			}
 			if len(tile.Refs) < minRefs {
 				minRefs = len(tile.Refs)
@@ -213,22 +209,19 @@ func listTiles(ctx *cli.Context) error {
 			queue.Push(ref, prio+1)
 		}
 	}
-	tileSize += common.StorageSize(tiles) // Depth uses 1 byte.
 
 	// Display the database statistic.
 	stats := [][]string{
 		{"Tile size", tileSize.String()},
-		{"Hash size", hashSize.String()},
-		{"Refs size", refsSize.String()},
 		{"Total", fmt.Sprintf("%d", tiles)},
 		{"Miss", fmt.Sprintf("%d", miss)},
 		{"State", fmt.Sprintf("%d", state)},
 		{"Storage", fmt.Sprintf("%d", storage)},
-		{"Avg nodes", fmt.Sprintf("%.2f", float64(hashes)/float64(tiles))},
+		{"Avg nodes", fmt.Sprintf("%.2f", float64(nodes)/float64(tiles))},
 		{"Avg refs", fmt.Sprintf("%.2f", float64(refs)/float64(tiles))},
-		{"Max node", fmt.Sprintf("%d", maxHashes)},
+		{"Max node", fmt.Sprintf("%d", maxNodes)},
 		{"Max ref", fmt.Sprintf("%d", maxRefs)},
-		{"Min node", fmt.Sprintf("%d", minHashes)},
+		{"Min node", fmt.Sprintf("%d", minNodes)},
 		{"Min ref", fmt.Sprintf("%d", minRefs)},
 	}
 	table := tablewriter.NewWriter(os.Stdout)

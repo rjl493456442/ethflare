@@ -209,7 +209,7 @@ func newTileDatabase(db ethdb.Database) *tileDatabase {
 	}
 }
 
-func (db *tileDatabase) insert(hash common.Hash, depth uint8, size common.StorageSize, hashmap map[common.Hash]struct{}, refs []common.Hash) error {
+func (db *tileDatabase) insert(hash common.Hash, depth uint8, number uint16, size common.StorageSize, refs []common.Hash) error {
 	// Allocate a new diff layer if necessary
 	if db.current == nil {
 		var parent *diffLayer
@@ -219,15 +219,11 @@ func (db *tileDatabase) insert(hash common.Hash, depth uint8, size common.Storag
 		db.current = &diffLayer{parent: parent, tiles: make(map[common.Hash]*tile)}
 	}
 	// Insert the new tile to the set
-	var hashes []common.Hash
-	for hash := range hashmap {
-		hashes = append(hashes, hash)
-	}
 	db.current.tiles[hash] = &tile{
 		Tile: types.Tile{
-			Depth:  depth,
-			Hashes: hashes,
-			Refs:   refs,
+			Depth: depth,
+			Nodes: number,
+			Refs:  refs,
 		},
 	}
 	db.current.size += size
@@ -338,9 +334,9 @@ func (db *tileDatabase) get(hash common.Hash) (*types.Tile, common.Hash) {
 	if t != nil {
 		state, _ := database.ReadStateRoot(db.db)
 		return &types.Tile{
-			Depth:  t.Depth,
-			Hashes: t.Hashes,
-			Refs:   t.Refs,
+			Depth: t.Depth,
+			Nodes: t.Nodes,
+			Refs:  t.Refs,
 		}, state
 	}
 	return nil, common.Hash{} // Not found

@@ -26,10 +26,8 @@ import (
 
 func TestTileEncode(t *testing.T) {
 	var tiles = []*types.Tile{
-		{Depth: 0, Hashes: nil, Refs: nil},
-		{Depth: 1, Hashes: nil, Refs: nil},
-		{Depth: 1, Hashes: []common.Hash{common.HexToHash("dead"), common.HexToHash("beef")},
-			Refs: []common.Hash{common.HexToHash("cafe"), common.HexToHash("babe")}},
+		{Depth: 0, Nodes: 1, Refs: nil},
+		{Depth: 1, Nodes: 1, Refs: []common.Hash{common.HexToHash("cafe"), common.HexToHash("babe")}},
 	}
 	for _, d := range tiles {
 		enc, err := rlp.EncodeToBytes(d)
@@ -43,13 +41,8 @@ func TestTileEncode(t *testing.T) {
 		if got.Depth != d.Depth {
 			t.Fatal("Depth mismatch")
 		}
-		if len(got.Hashes) != len(d.Hashes) {
+		if got.Nodes != d.Nodes {
 			t.Fatal("Hashes mismatch")
-		}
-		for index, h := range got.Hashes {
-			if d.Hashes[index] != h {
-				t.Fatal("Hashes mismatch")
-			}
 		}
 		if len(got.Refs) != len(d.Refs) {
 			t.Fatal("Refs mismatch")

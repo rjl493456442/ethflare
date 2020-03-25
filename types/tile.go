@@ -25,32 +25,32 @@ import (
 
 // tile represents the metadata of a chunk of state trie.
 type Tile struct {
-	Depth  uint8         // The depth of the root node in trie
-	Hashes []common.Hash // The hash list of all included nodes
-	Refs   []common.Hash // The references from tile to external
+	Depth uint8         // The depth of the root node in trie
+	Nodes uint16        // The node number in tile
+	Refs  []common.Hash // The references from tile to external
 }
 
 // EncodeRLP implements rlp.Encoder which flattens all necessary fields into an RLP stream.
 func (t *Tile) EncodeRLP(w io.Writer) error {
 	type tileRLP struct {
-		Depth  uint8         // The depth of the root node in trie
-		Hashes []common.Hash // The hash list of all included nodes
-		Refs   []common.Hash // The references from tile to external
+		Depth uint8         // The depth of the root node in trie
+		Nodes uint16        // The node number in tile
+		Refs  []common.Hash // The references from tile to external
 	}
-	return rlp.Encode(w, &tileRLP{t.Depth, t.Hashes, t.Refs})
+	return rlp.Encode(w, &tileRLP{t.Depth, t.Nodes, t.Refs})
 }
 
 // DecodeRLP implements rlp.Decoder which loads the persisted fields of a tile from an RLP stream.
 func (t *Tile) DecodeRLP(s *rlp.Stream) error {
 	type tileRLP struct {
-		Depth  uint8         // The depth of the root node in trie
-		Hashes []common.Hash // The hash list of all included nodes
-		Refs   []common.Hash // The references from tile to external
+		Depth uint8         // The depth of the root node in trie
+		Nodes uint16        // The node number in tile
+		Refs  []common.Hash // The references from tile to external
 	}
 	var dec tileRLP
 	if err := s.Decode(&dec); err != nil {
 		return err
 	}
-	t.Depth, t.Hashes, t.Refs = dec.Depth, dec.Hashes, dec.Refs
+	t.Depth, t.Nodes, t.Refs = dec.Depth, dec.Nodes, dec.Refs
 	return nil
 }
